@@ -135,5 +135,149 @@ class LDA(object):
 
 		return image_array
 
+	def get_topic_as_dict(self,topic_id,thresh = 0.001):
+		pmt = self.get_post_mean_topics()
+		top = {}
+		for word in self.word_index:
+			pos = self.word_index[word]
+			if pmt[topic_id,pos] >= thresh:
+				top[word] = pmt[topic_id,pos]
+		return top
+
+	def get_topic_as_doc_dict(self,topic_id,thresh = 0.001):
+		pmth = self.get_post_mean_theta()
+		top = {}
+		for doc in self.doc_index:
+			pos = self.doc_index[doc]
+			if pmth[topic_id,pos] >= thresh:
+				top[doc] = pmth[topic_id,pos]
+		return top
+		
+	def get_topic_as_tuples(self,topic_id,thresh = 0.001):
+		pmth = self.get_post_mean_topics()
+		top = []
+		for word in self.word_index:
+			pos = self.word_index[word]
+			if pmth[topic_id,pos] >= thresh:
+				top.append((word,pmth[topic_id,pos]))
+
+		return sorted(top,key = lambda x: x[1], reverse=True)
+
+
+
+class LDA_Feature_Extractor(object):
+	def __init__(self,filename,use_scans = 'even',tol = 50, min_intense = 500, min_occurance = 5, max_occurance = 200,min_mass = 50.0,max_mass = 300.0):
+		self.tol = tol
+		self.min_intense = min_intense
+		self.min_occurance = min_occurance
+		self.max_occurance = max_occurance
+		self.filename = filename
+		self.min_mass = min_mass
+		self.max_mass = max_mass
+		self.use_scans = use_scans
+
+	def make_corpus(self):
+		import pymzml
+		total_peaks = 0
+		self.word_masses = []
+		self.word_names = []
+		self.instances = []
+		run = pymzml.run.Reader(self.filename,MS1_Precision = 5e-6)
+		self.corpus = {}
+		spec_pos = 0
+		for spectrum in run:
+			if self.use_scans == 'even' and spec_pos % 2 == 1:
+				spec_pos += 1
+				continue
+			if self.use_scans == 'odd' and spec_pos % 2 == 0:
+				spec_pos += 1
+				continue
+			new_doc = {}
+			max_i = 3000.0 
+			min_i = 1e10
+			for m,i in spectrum.peaks:
+				if i >= self.min_intense and m >= self.min_mass and m <= self.max_mass:
+					word = None
+					if len(self.word_masses) == 0:
+						self.word_masses.append(m)
+						self.word_names.append(str(m))
+						self.instances.append(1)
+						word = str(m)
+					else:
+						idx = np.abs(m - np.array(self.word_masses)).argmin()
+						if not self.hit(m,self.word_masses[idx],self.tol):
+							self.word_masses.append(m)
+							self.word_names.append(str(m))
+							self.instances.append(1)
+							word = str(m)
+						else:
+							self.instances[idx] += 1
+							word = self.word_names[idx]
+					new_doc[word] = i
+					if i < min_i:
+						min_i = i
+
+			to_remove = []
+			for word in new_doc:
+				if new_doc[word] > max_i:
+					new_doc[word] = max_i
+				new_doc[word] -= min_i
+				new_doc[word] /= (max_i - min_i)
+				new_doc[word] *= 100.0
+				new_doc[word] = int(new_doc[word])
+				if new_doc[word] == 0:
+					to_remove.append(word)
+
+			for word in to_remove:
+				del new_doc[word]
+
+			self.corpus[str(spec_pos)] = new_doc
+			spec_pos += 1
+			if spec_pos % 100 == 0:
+				print "Spectrum {}".format(spec_pos)
+
+
+		print "Found {} documents".format(len(self.corpus))
+
+		word_counts = {}
+		for doc in self.corpus:
+			for word in self.corpus[doc]:
+				if word in word_counts:
+					word_counts[word] += 1
+				else:
+					word_counts[word] = 1
+
+
+		min_doc_word_instances = 5
+		max_doc_word_instances = 200
+
+		to_remove = []
+		for word in word_counts:
+			if word_counts[word] < min_doc_word_instances:
+				to_remove.append(word)
+			if word_counts[word] > max_doc_word_instances:
+				to_remove.append(word)
+
+
+		print "Removing {} words".format(len(to_remove))
+
+		for doc in self.corpus:
+			for word in to_remove:
+				if word in self.corpus[doc]:
+					del self.corpus[doc][word]
+
+	def hit(self,m1,m2,tol):
+	    if 1e6*abs(m1-m2)/m1 < tol:
+	        return True
+	    else:
+	        return False
+
+
+
+
+
+
+
+
 
 
