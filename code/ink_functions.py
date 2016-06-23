@@ -47,11 +47,14 @@ class ImagingGrid(object):
 			if m_size >= min_to_plot:
 				plt.plot(x,y,color+'o',markersize=max_marker_size*vals[v]/max_val)
 
-	def plot_topic_dict(topic_dict,label_thresh=0.05):
-	    plt.figure(figsize=(30,10))
-	    for word in topic_dict:
-	        mass = float(word)
-	        plt.plot([mass,mass],[0,topic_dict[word]],'k',linewidth=2)
-	        if topic_dict[word] > label_thresh:
-	            plt.text(mass,topic_dict[word],word,fontsize=24)
+
+
+
+def plot_topic_dict(topic_dict,label_thresh=0.05):
+    plt.figure(figsize=(30,10))
+    for word in topic_dict:
+        mass = float(word)
+        plt.plot([mass,mass],[0,topic_dict[word]],'k',linewidth=2)
+        if topic_dict[word] > label_thresh:
+            plt.text(mass,topic_dict[word],word,fontsize=24)
 
