@@ -1,5 +1,5 @@
 import numpy as np
-
+import scipy
 # class Word(object):
 # 	def __init__(self,name,index):
 # 		self.name = name
@@ -182,6 +182,7 @@ class LDA_Feature_Extractor(object):
 		self.word_masses = []
 		self.word_names = []
 		self.instances = []
+		self.total_m = []
 		run = pymzml.run.Reader(self.filename,MS1_Precision = 5e-6)
 		self.corpus = {}
 		spec_pos = 0
@@ -202,6 +203,7 @@ class LDA_Feature_Extractor(object):
 						self.word_masses.append(m)
 						self.word_names.append(str(m))
 						self.instances.append(1)
+						self.total_m.append(m)
 						word = str(m)
 					else:
 						idx = np.abs(m - np.array(self.word_masses)).argmin()
@@ -209,9 +211,13 @@ class LDA_Feature_Extractor(object):
 							self.word_masses.append(m)
 							self.word_names.append(str(m))
 							self.instances.append(1)
+							self.total_m.append(m)
 							word = str(m)
 						else:
+							self.total_m[idx] += m
 							self.instances[idx] += 1
+							# self.word_masses[idx] = self.total_m[idx]/self.instances[idx]
+							# self.word_names[idx] = str(self.word_masses[idx])
 							word = self.word_names[idx]
 					new_doc[word] = i
 					if i < min_i:
@@ -274,10 +280,123 @@ class LDA_Feature_Extractor(object):
 
 
 
+class VariationalLDA(object):
+	def __init__(self,corpus,K = 20):
+		self.corpus = corpus
+		self.n_docs = len(self.corpus)
+		self.word_index = self.find_unuique_words()
+		print "Object created with {} documents".format(self.n_docs)
+		self.n_words = len(self.word_index)
+
+		self.make_doc_word_matrix()
+		print "Document - word matrix created"
+		print self.word_matrix
+		self.K = K
+		self.alpha = 1.0*np.ones(self.K)
+		self.eta = 0.1 # Smoothing parameter for beta
+
+	def run_vb(self,n_its = 1,verbose=True):
+		print "Initialising"
+		self.init_vb()
+		print "Starting iterations"
+		for it in range(n_its):
+			if verbose:
+				print "Iteration {}".format(it)
+			self.vb_step()
 
 
+	def vb_step(self):
+		temp_beta = self.e_step()
+		self.beta_matrix = temp_beta / temp_beta.sum(axis=1)[:,None]
+		# self.m_step()
+
+	def e_step(self):
+		temp_beta = np.zeros((self.K,self.n_words)) + self.eta
+		for doc in self.corpus:
+			d = self.doc_index[doc]
+			temp_gamma = np.zeros(self.K) + self.alpha
+			for word in self.corpus[doc]:
+				w = self.word_index[word]
+				self.phi_matrix[doc][word] = self.beta_matrix[:,w]*np.exp(scipy.special.psi(self.gamma_matrix[d,:])).T
+				# for k in range(self.K):
+				# 	self.phi_matrix[doc][word][k] = self.beta_matrix[k,w]*np.exp(scipy.special.psi(self.gamma_matrix[d,k]))
+				self.phi_matrix[doc][word] /= self.phi_matrix[doc][word].sum()
+				temp_gamma += self.phi_matrix[doc][word]*self.corpus[doc][word]
+				temp_beta[:,w] += self.phi_matrix[doc][word] * self.corpus[doc][word]
+			# self.phi_matrix[d,:,:] = (self.beta_matrix * self.word_matrix[d,:][None,:] * (np.exp(scipy.special.psi(self.gamma_matrix[d,:]))[:,None])).T
+			# self.phi_matrix[d,:,:] /= self.phi_matrix[d,:,:].sum(axis=1)[:,None]
+			# self.gamma_matrix[d,:] = self.alpha + self.phi_matrix[d,:,:].sum(axis=0)
+			self.gamma_matrix[d,:] = temp_gamma
+		return temp_beta
+
+	def m_step(self):
+		for k in range(self.K):
+			self.beta_matrix[k,:] = self.eta + (self.word_matrix * self.phi_matrix[:,:,k]).sum(axis=0)
+		self.beta_matrix /= self.beta_matrix.sum(axis=1)[:,None]
+
+	def find_unuique_words(self):
+		word_index = {}
+		pos = 0
+		for doc in self.corpus:
+			for word in self.corpus[doc]:
+				if not word in word_index:
+					word_index[word] = pos
+					pos += 1
+		print "Found {} unique words".format(len(word_index))
+		return word_index
+
+	def make_doc_word_matrix(self):
+		self.word_matrix = np.zeros((self.n_docs,self.n_words),np.int)
+		self.doc_index = {}
+		doc_pos = 0
+		for doc in self.corpus:
+			for word in self.corpus[doc]:
+				word_pos = self.word_index[word]
+				self.word_matrix[doc_pos,word_pos] = self.corpus[doc][word]
+			self.doc_index[doc] = doc_pos
+			doc_pos += 1
+
+	def init_vb(self):
+		# self.gamma_matrix = np.zeros((self.n_docs,self.K),np.float) + 1.0
+		# self.phi_matrix = np.zeros((self.n_docs,self.n_words,self.K))
+		self.phi_matrix = {}
+		self.gamma_matrix = np.zeros((self.n_docs,self.K))
+		for doc in self.corpus:
+			self.phi_matrix[doc] = {}
+			for word in self.corpus[doc]:
+				self.phi_matrix[doc][word] = np.zeros(self.K)
+			d = self.doc_index[doc]
+			self.gamma_matrix[d,:] = self.alpha + 1.0*sum(self.word_matrix[d,:])/self.K
+		# # Normalise this to sum to 1
+		# self.phi_matrix /= self.phi_matrix.sum(axis=2)[:,:,None]
+
+		# Initialise the betas
+		self.beta_matrix = np.random.rand(self.K,self.n_words)
+		self.beta_matrix /= self.beta_matrix.sum(axis=1)[:,None]
 
 
+	def get_topic_as_doc_dict(self,topic_id,thresh = 0.001):
+		top = {}
+		for doc in self.doc_index:
+			pos = self.doc_index[doc]
+			if self.gamma_matrix[pos,topic_id] >= thresh:
+				top[doc] = self.gamma_matrix[pos,topic_id]
+		return top
+
+	def get_topic_as_dict(self,topic_id):
+		top = {}
+		for word in self.word_index:
+			top[word] = self.beta_matrix[topic_id,self.word_index[word]]
+		return top
+
+	def get_expect_theta(self):
+		e_theta = np.zeros((self.n_docs,self.K))
+		e_theta = self.gamma_matrix.copy()
+		e_theta /= e_theta.sum(axis=1)[:,None]
+		return e_theta
+
+	def get_beta(self):
+		return self.beta_matrix.copy()
 
 
 
