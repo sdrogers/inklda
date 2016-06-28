@@ -4,13 +4,10 @@ import pylab as plt
 class ImagingGrid(object):
 	def __init__(self,n_rows = 6,width=50.0,drop = 3.0,time_between_scans = 1.25,n_scans = 2281):
 		self.n_rows = n_rows
-		self.width = 50.0
-		self.drop = 3.0
-		self.time_between_scans = 1.25
+		self.width = width
+		self.drop = drop
+		self.time_between_scans = time_between_scans
 		self.n_scans = n_scans
-
-		
-
 		self.compute_coords()
 
 	def compute_coords(self):
@@ -50,11 +47,11 @@ class ImagingGrid(object):
 
 
 
-def plot_topic_dict(topic_dict,label_thresh=0.05):
+def plot_topic_dict(topic_dict,label_thresh=0.02):
     plt.figure(figsize=(30,10))
     for word in topic_dict:
         mass = float(word)
         plt.plot([mass,mass],[0,topic_dict[word]],'k',linewidth=2)
         if topic_dict[word] > label_thresh:
-            plt.text(mass,topic_dict[word],word,fontsize=24)
+            plt.text(mass,topic_dict[word],word,fontsize=14)
 
