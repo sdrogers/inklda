@@ -410,12 +410,16 @@ class VariationalLDA(object):
 		self.beta_matrix /= self.beta_matrix.sum(axis=1)[:,None]
 
 
-	def get_topic_as_doc_dict(self,topic_id,thresh = 0.001):
+	def get_topic_as_doc_dict(self,topic_id,thresh = 0.001,normalise=False):
 		top = {}
+		mat = self.gamma_matrix
+		if normalise:
+			mat = self.get_expect_theta()
+
 		for doc in self.doc_index:
 			pos = self.doc_index[doc]
-			if self.gamma_matrix[pos,topic_id] >= thresh:
-				top[doc] = self.gamma_matrix[pos,topic_id]
+			if mat[pos,topic_id] >= thresh:
+				top[doc] = mat[pos,topic_id]
 		return top
 
 	def get_topic_as_dict(self,topic_id):
@@ -425,7 +429,6 @@ class VariationalLDA(object):
 		return top
 
 	def get_expect_theta(self):
-		e_theta = np.zeros((self.n_docs,self.K))
 		e_theta = self.gamma_matrix.copy()
 		e_theta /= e_theta.sum(axis=1)[:,None]
 		return e_theta

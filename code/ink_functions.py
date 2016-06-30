@@ -1,6 +1,11 @@
 # Some useful functions for imaging data
 import numpy as np
 import pylab as plt
+import plotly as plotly
+from plotly.graph_objs import *
+plotly.offline.init_notebook_mode()
+
+
 class ImagingGrid(object):
 	def __init__(self,n_rows = 6,width=50.0,drop = 3.0,time_between_scans = 1.25,n_scans = 2281):
 		self.n_rows = n_rows
@@ -44,6 +49,14 @@ class ImagingGrid(object):
 			if m_size >= min_to_plot:
 				plt.plot(x,y,color+'o',markersize=max_marker_size*vals[v]/max_val)
 
+	def plot_linear(self,vals):
+		f = plt.figure(figsize=(20,10))
+		cols = ['r','b','g']
+		for i,topic in enumerate(vals):
+			for doc in topic:
+				plt.plot(int(doc),topic[doc],cols[i]+'o')
+				# plt.plot([int(doc),int(doc)],[0,topic[doc]],cols[i])
+		return f
 
 
 
@@ -55,3 +68,92 @@ def plot_topic_dict(topic_dict,label_thresh=0.02):
         if topic_dict[word] > label_thresh:
             plt.text(mass,topic_dict[word],word,fontsize=14)
 
+def plot_topic_dict_plotly(topic_dict,thresh=0.001):
+	x = []
+	y = []
+	for word in topic_dict:
+		if topic_dict[word] >= thresh:
+			x.append(float(word))
+			y.append(topic_dict[word])
+
+	data1 = Bar(
+		x = x,
+		y = y,
+		marker=dict(
+                line=dict(
+                    color='rgb(8,48,107)',
+                    width=1),
+            ),
+		hoverinfo='none',
+		)
+	data2 = Scatter(
+		x=x,
+		y=y,
+		mode='markers',
+		hoverinfo = 'xy',
+	)
+
+	layout = Layout(
+		hovermode='closest',
+		)
+
+	plotly.offline.iplot([data1,data2],[layout])
+
+
+def plot_topic_dict_diff_plotly(topic_dict,topic_dict_2,names=None):
+	x = []
+	y = []
+	for word in topic_dict:
+		x.append(float(word))
+		y.append(topic_dict[word])
+
+	
+	plotly.offline.init_notebook_mode()
+
+
+	data1 = Bar(
+		x = x,
+		y = y,
+		marker=dict(
+                line=dict(
+                    width=1),
+            ),
+		)
+	data2 = Scatter(
+		x=x,
+		y=y,
+		mode='markers',
+		name = names[0],
+		text=["Mass: {}".format(a) for a in x],
+		marker=dict(
+			color="rgb(0,255,0)")
+	)
+
+	x2 = []
+	y2 = []
+	for word in topic_dict_2:
+		x2.append(float(word))
+		y2.append(topic_dict_2[word])
+
+
+
+	data3 = Bar(
+		x = x2,
+		y = [-a for a in y2],
+		marker=dict(
+                line=dict(
+                    width=1),
+            ),
+		)
+	data4 = Scatter(
+		x=x2,
+		y=[-a for a in y2],
+		mode='markers',
+		name = names[1],
+		text=["Mass: {}".format(a) for a in x2],
+		marker = dict(
+			color = "rgb(255,0,0)"
+			)
+	)
+
+	plotly.offline.iplot([data1,data2,data3,data4])
