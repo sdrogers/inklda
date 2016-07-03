@@ -1,5 +1,9 @@
 import numpy as np
 from scipy.special import psi as psi
+from scipy.special import polygamma as pg
+
+import plotly as plotly
+from plotly.graph_objs import *
 # class Word(object):
 # 	def __init__(self,name,index):
 # 		self.name = name
@@ -312,23 +316,100 @@ class LDA_Feature_Extractor(object):
 
 
 class VariationalLDA(object):
-	def __init__(self,corpus,K = 20):
+	def __init__(self,corpus=None,K = 20,eta=0.1,alpha=1,update_alpha=True,word_index=None):
 		self.corpus = corpus
+		self.word_index = word_index
+		if not self.corpus == None:
+			self.n_docs = len(self.corpus)
+			if self.word_index == None:
+				self.word_index = self.find_unique_words()
+			print "Object created with {} documents".format(self.n_docs)
+			self.n_words = len(self.word_index)
+
+			self.make_doc_word_matrix()
+			print "Document - word matrix created"
+			print self.word_matrix
+		
+		self.K = K
+		self.alpha = alpha
+		if type(self.alpha) == int:
+			self.alpha = self.alpha*np.ones(self.K)
+		self.eta = eta # Smoothing parameter for beta
+		self.update_alpha = update_alpha
+
+
+	def load_features_from_csv(self,prefix,scale_factor=100.0):
+		self.ms1peaks = []
+		ms1file = prefix + '_ms1.csv'
+		with open(ms1file,'r') as f:
+		    heads = f.readline()
+		    for line in f:
+		        split_line = line.split(',')
+		        ms1_id = split_line[1]
+		        mz = float(split_line[5])
+		        rt = float(split_line[4])
+		        name = split_line[5] + '_' + split_line[4]
+		        intensity = float(split_line[6])
+		        new_ms1 = MS1(ms1_id,mz,rt,intensity,name)
+		        self.ms1peaks.append(new_ms1)
+		print "Loaded {} MS1 peaks".format(len(self.ms1peaks))
+		parent_id_list = [i.ms1_id for i in self.ms1peaks]
+
+		frag_file = prefix + '_ms2.csv'
+		features = []
+		self.corpus = {}
+		with open(frag_file,'r') as f:
+		    heads = f.readline().split(',')
+		    for line in f:
+		        split_line = line.rstrip().split(',')
+		        frag_name = split_line[10]
+		        if not frag_name == 'NA':
+		            frag_name = frag_name[1:-1]
+		        frag_id = 'fragment_' + frag_name
+		        
+		        loss_name = split_line[11]
+		        if not loss_name == 'NA':
+		            loss_name = loss_name[1:-1]
+		            loss_id = 'loss_' + loss_name
+		        
+		        if not frag_id == "fragment_NA":
+		            if not frag_id in features:
+		                features.append(frag_id)
+		            frag_idx = features.index(frag_id)
+
+		        if not loss_id == "loss_NA":
+		            if not loss_id in features:
+		                features.append(loss_id)
+		            loss_idx = features.index(loss_id)
+		        
+		        intensity = float(split_line[6])
+		        
+		        parent_id = split_line[2]
+		        parent = self.ms1peaks[parent_id_list.index(parent_id)]
+
+		        if not parent in self.corpus:
+		            self.corpus[parent] = {}
+		            
+		        if not frag_id == "fragment_NA":
+		            self.corpus[parent][frag_id] = intensity * scale_factor
+		        if not loss_id == "loss_NA":
+		            self.corpus[parent][loss_id] = intensity * scale_factor
+
 		self.n_docs = len(self.corpus)
-		self.word_index = self.find_unuique_words()
+		if self.word_index == None:
+			self.word_index = self.find_unuique_words()
 		print "Object created with {} documents".format(self.n_docs)
 		self.n_words = len(self.word_index)
 
 		self.make_doc_word_matrix()
 		print "Document - word matrix created"
 		print self.word_matrix
-		self.K = K
-		self.alpha = 1.0*np.ones(self.K)
-		self.eta = 0.1 # Smoothing parameter for beta
 
-	def run_vb(self,n_its = 1,verbose=True):
-		print "Initialising"
-		self.init_vb()
+
+	def run_vb(self,n_its = 1,verbose=True,initialise=True):
+		if initialise:
+			print "Initialising"
+			self.init_vb()
 		print "Starting iterations"
 		for it in range(n_its):
 			diff = self.vb_step()
@@ -342,8 +423,35 @@ class VariationalLDA(object):
 		temp_beta /= temp_beta.sum(axis=1)[:,None]
 		total_difference = (np.abs(temp_beta - self.beta_matrix)).sum()
 		self.beta_matrix = temp_beta
+		if self.update_alpha:
+			self.alpha = self.alpha_nr()
 		return total_difference
 		# self.m_step()
+
+
+
+	# Newton-Raphson procedure for updating alpha
+	def alpha_nr(self,maxit=20,init_alpha=[]):
+	    M,K = self.gamma_matrix.shape
+	    if not len(init_alpha) > 0:
+	        init_alpha = self.gamma_matrix.mean(axis=0)/K
+	    alpha = init_alpha.copy()
+	    alphap = init_alpha.copy()
+	    g_term = (psi(self.gamma_matrix) - psi(self.gamma_matrix.sum(axis=1))[:,None]).sum(axis=0)
+	    for it in range(maxit):
+	        grad = M *(psi(alpha.sum()) - psi(alpha)) + g_term
+	        H = -M*np.diag(pg(1,alpha)) + M*pg(1,alpha.sum())
+	        alpha_new = alpha - np.dot(np.linalg.inv(H),grad)
+	        if (alpha_new < 0).sum() > 0:
+	            init_alpha /= 10.0
+	            return self.alpha_nr(maxit=maxit,init_alpha = init_alpha)
+	        
+	        diff = np.sum(np.abs(alpha-alpha_new))
+	        alpha = alpha_new
+	        if diff < 1e-6 and it > 1:
+	            return alpha
+	    return alpha
+
 
 	def e_step(self):
 		temp_beta = np.zeros((self.K,self.n_words)) + self.eta
@@ -387,7 +495,7 @@ class VariationalLDA(object):
 		for doc in self.corpus:
 			for word in self.corpus[doc]:
 				word_pos = self.word_index[word]
-				self.word_matrix[doc_pos,word_pos] = self.corpus[doc][word]
+				self.word_matrix[doc_pos,word_pos] = int(self.corpus[doc][word])
 			self.doc_index[doc] = doc_pos
 			doc_pos += 1
 
@@ -436,5 +544,91 @@ class VariationalLDA(object):
 	def get_beta(self):
 		return self.beta_matrix.copy()
 
+class MS1(object):
+    def __init__(self,ms1_id,mz,rt,intensity,name):
+        self.ms1_id = ms1_id
+        self.mz = mz
+        self.rt = rt
+        self.intensity = intensity
+        self.name = name
+    def __str__(self):
+        return self.name
 
 
+
+class MultiFileVariationalLDA(object):
+	def __init__(self,corpus_list,word_index,K = 20,alpha=1,eta = 0.1):
+		self.word_index = word_index # this needs to be consistent across the instances
+		self.corpus_list = corpus_list
+		self.K = K
+		self.alpha = alpha
+		if type(self.alpha) == int:
+			self.alpha = self.alpha*np.ones(self.K)
+		self.eta = eta # Smoothing parameter for beta
+		self.individual_lda = []
+		for corpus in self.corpus_list:
+			new_lda = VariationalLDA(corpus=corpus,K=K,alpha=alpha,eta=eta,word_index=word_index)
+			self.individual_lda.append(new_lda)
+
+
+	def run_vb(self,n_its = 10,initialise=True):
+		if initialise:
+			for l in self.individual_lda:
+				l.init_vb()
+		for it in range(n_its):
+			print "Iteration: {}".format(it)
+			temp_beta = np.zeros((self.individual_lda[0].K,self.individual_lda[0].n_words),np.float)
+			total_difference = []
+			for l in self.individual_lda:
+				temp_beta += l.e_step()
+				if l.update_alpha:
+					l.alpha = l.alpha_nr()
+			temp_beta /= temp_beta.sum(axis=1)[:,None]
+			total_difference = (np.abs(temp_beta - self.individual_lda[0].beta_matrix)).sum()
+			for l in self.individual_lda:
+				l.beta_matrix = temp_beta
+			print total_difference
+
+
+class VariationalLDAPlotter(object):
+	def __init__(self,v_lda):
+		plotly.offline.init_notebook_mode()
+		self.v_lda = v_lda
+
+	def bar_alpha(self):
+		K = len(self.v_lda.alpha)
+		data = []
+		data.append(
+			Bar(
+				x = range(K),
+				y = self.v_lda.alpha,
+				)
+			)
+		plotly.offline.iplot({'data':data})
+	def mean_gamma(self):
+		K = len(self.v_lda.alpha)
+		data = []
+		data.append(
+			Bar(
+				x = range(K),
+				y = self.v_lda.gamma_matrix.mean(axis=0),
+				)
+			)
+		plotly.offline.iplot({'data':data})
+
+class MultiFileVariationalLDAPlotter(object):
+	def __init__(self,m_lda):
+		plotly.offline.init_notebook_mode()
+		self.m_lda = m_lda
+
+	def multi_alpha(self):
+		data = []
+		K = self.m_lda.individual_lda[0].K
+		for l in self.m_lda.individual_lda:
+			data.append(
+				Bar(
+					x = range(K),
+					y = l.alpha
+					)
+				)
+		plotly.offline.iplot({'data':data})
