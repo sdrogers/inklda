@@ -621,14 +621,18 @@ class MultiFileVariationalLDAPlotter(object):
 		plotly.offline.init_notebook_mode()
 		self.m_lda = m_lda
 
-	def multi_alpha(self):
+	def multi_alpha(self,normalise=False):
 		data = []
 		K = self.m_lda.individual_lda[0].K
 		for l in self.m_lda.individual_lda:
+			if normalise:
+				a = l.alpha / l.alpha.sum()
+			else:
+				a = l.alpha
 			data.append(
 				Bar(
 					x = range(K),
-					y = l.alpha
+					y = a
 					)
 				)
 		plotly.offline.iplot({'data':data})
