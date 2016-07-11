@@ -1,3 +1,5 @@
+import numpy as np
+
 
 class LDA_Feature_Extractor(object):
 	def __init__(self,filename,use_scans = 'even',tol = 50, min_intense = 500, min_occurance = 5, max_occurance = 200,min_mass = 50.0,max_mass = 300.0,min_doc_word_instances = 5,max_doc_word_instances = 200):
